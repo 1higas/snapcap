@@ -1,68 +1,52 @@
-# Snapdragon Charge Limit
+# Snapcap
 
-A tiny (~15 KB) Windows app that sets a battery charge limit on Snapdragon X laptops, such as stopping at 80% while the laptop stays plugged in.
+<img src="docs/icon.png" width="64" align="right" alt="">
 
-On these machines the limit lives in the Qualcomm battery-manager firmware. Linux can set it (GNOME's "Preserve Battery Health" setting does), but on Windows the vendor apps often don't show it. Lenovo Vantage, for example, looks for a Lenovo "Energy Management" driver that doesn't exist on Snapdragon models. Because the firmware keeps the value across reboots and operating systems, a limit set from Linux can leave a laptop stuck at 60–80% in Windows with no way to undo it. This app lets you set it, change it and remove it from Windows.
+Snapcap stops your Snapdragon X laptop from charging past a level you choose, such as 80%. Keeping the battery below full while the laptop stays plugged in helps it last longer.
 
-![Charge Limit window](docs/screenshot.png)
+Windows and most laptop apps don't offer this option on Snapdragon laptops, even though the battery supports it. Snapcap adds it, in a small panel next to the clock.
 
-## Requirements
+<p>
+  <img src="docs/flyout.png" width="360" alt="Snapcap panel">
+  <img src="docs/settings.png" width="360" alt="Snapcap settings">
+</p>
 
-- A Snapdragon X (X1E/X1P) laptop running Windows 11 with Qualcomm's PMIC GLink driver (`qcpmicglink8380.sys`). The app checks for it at startup.
-- Administrator rights (the app asks through UAC).
-- .NET Framework 4.8.1, which is built into Windows 11. Nothing to install.
+## Download
 
-Tested on a Lenovo Yoga Slim 7x 14Q8X9 (83ED). Other Snapdragon X laptops use the same Qualcomm driver and will probably work. Please open an issue with your model either way.
+Get it from [Releases](../../releases). There are two versions:
 
-## Usage
+- **Snapcap-Setup.exe** (recommended) installs Snapcap and starts it every time you sign in. Windows asks for permission once, during setup, and never again.
+- **Snapcap-Portable.exe** runs without installing. Windows asks for permission each time you change the limit.
 
-Download `ChargeLimit.exe` from [Releases](../../releases) and run it. It's a single portable file with no installer.
+Snapcap needs a laptop with a Snapdragon X processor and Windows 11. It has been tested on a Lenovo Yoga Slim 7x. Other Snapdragon X laptops will probably work too; please [open an issue](../../issues) to say whether yours does.
 
-- **Limit battery charge**: turns the limit on.
-- **Stop charging at**: 55–100%.
-- **Resume charging after a drop of**: how many points below the limit charging starts again. The default is 5, so a limit of 80% resumes charging below 75%.
-- **Apply**: sends the setting to the firmware. It takes effect right away, survives reboots, and also applies in Linux.
+## How to use it
 
-Untick the box and press **Apply** to charge to 100% again.
+Click the Snapcap icon next to the clock to open the panel:
 
-### Command line
+- Turn on **Limit charging** and pick where charging should stop. Once the battery gets there, the laptop runs straight from the charger and the battery stays put.
+- The **chart** shows the battery's power over the last few minutes: green while it charges, orange while it drains, grey while it rests. Point at it to see the exact time and value.
 
-Useful for Task Scheduler or scripts. The app shows no window in this mode, and the exit code is `0` on success or a Win32 error code (`87` means invalid arguments).
+The limit stays in place after restarts, even if you turn Snapcap off or uninstall it. To charge to 100% again, turn **Limit charging** off.
 
-```bat
-ChargeLimit.exe --set 80
-ChargeLimit.exe --set 80 --delta 10
-ChargeLimit.exe --off
-```
+Click the **gear** for settings:
 
-## How it works
+- **Tray icon**: show the battery's power in watts (the default) or the Snapcap icon. The watts are what goes into or out of the battery, so a power meter on the charger will show more, since the charger also runs the laptop.
+- **Refresh every**: how often the numbers and the chart update.
+- **Chart shows the last**: 5 minutes, 15 minutes or 1 hour.
+- **Resume charging after a drop of**: if you unplug and use the battery for a while, how far below the limit it has to drop before it charges again. 1% keeps it right at the limit; a larger number avoids lots of tiny top-ups.
+- **Start with Windows** and **Check for updates** are on by default. When a new version is out, a small notice appears at the bottom of the panel.
 
-Qualcomm's `qcpmicglink` driver exposes `\\.\QCOMBATTMGR`. That device translates IOCTL `0x80092044` into the battery-manager firmware request `BATTMGR_CHG_CTRL_LIMIT_EN` (opcode `0x48`) and sends it to the ADSP over PMIC GLink. The input is three `uint32` values:
+To close Snapcap, right-click its icon and choose **Exit**. To uninstall it, go to **Settings › Apps**.
 
-| Offset | Field        | Value                                     |
-|--------|--------------|-------------------------------------------|
-| 0      | `enable`     | always `1`                                |
-| 4      | `target_soc` | stop charging at this % (`100` = no limit) |
-| 8      | `delta_soc`  | resume charging at `target_soc - delta_soc` |
+## Questions
 
-Linux's [`qcom_battmgr`](https://github.com/torvalds/linux/blob/master/drivers/power/supply/qcom_battmgr.c) driver sends the same request for `charge_control_end_threshold`, and this app uses the same bounds: stop at 55–100%, resume no lower than 50%.
+**Snapcap says it can't find the driver.** It only works on laptops with a Snapdragon X processor.
 
-The firmware doesn't report the current limit back through this interface, so the app remembers what it last applied in `HKCU\Software\ChargeLimit`. Battery status comes from the standard Windows battery class IOCTLs.
+**My laptop is stuck at 60% or 80% after using Linux.** That's the same setting. Linux saves it in the battery, and Snapcap can change or remove it.
 
-The IOCTL was found by reverse engineering the Windows driver. It isn't documented by Qualcomm and could change with a driver update. In that case the request would most likely just fail.
-
-## Building
-
-```bat
-build.cmd
-```
-
-This compiles `bin\ChargeLimit.exe` with the `csc.exe` that ships with the .NET Framework in Windows. No SDK or Visual Studio is needed. The code is C# 5 (the most recent version that compiler supports) and has no dependencies.
-
-## Disclaimer
-
-This sends an undocumented command to your battery firmware. It's the same command Linux uses, but there is no warranty. Use it at your own risk.
+**Is it safe?** Snapcap uses the same battery setting that Linux uses on these laptops. Still, it comes with no warranty.
 
 ## License
 
-[MIT](LICENSE)
+[MIT](LICENSE). For developers: [technical notes](docs/technical.md).

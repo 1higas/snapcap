@@ -2,7 +2,7 @@ using System;
 using System.ComponentModel;
 using System.Runtime.InteropServices;
 
-namespace ChargeLimit
+namespace Snapcap
 {
     struct BatteryState
     {
@@ -62,14 +62,106 @@ namespace ChargeLimit
         [DllImport("setupapi")]
         static extern bool SetupDiDestroyDeviceInfoList(IntPtr set);
 
-        static string batteryPath;
+        [DllImport("user32", SetLastError = true)]
+        static extern IntPtr LoadImageW(IntPtr instance, IntPtr name, int type, int cx, int cy, int flags);
 
-        // Throws Win32Exception with ERROR_FILE_NOT_FOUND (2) when the driver is absent
-        // and ERROR_ACCESS_DENIED (5) when not running elevated.
-        public static void CheckChargeControlAvailable()
+        [DllImport("user32")]
+        public static extern bool DestroyIcon(IntPtr icon);
+
+        [DllImport("kernel32")]
+        static extern IntPtr GetModuleHandleW(IntPtr name);
+
+        [DllImport("kernel32")]
+        static extern bool SetProcessWorkingSetSize(IntPtr process, IntPtr min, IntPtr max);
+
+        [DllImport("user32")]
+        public static extern bool AllowSetForegroundWindow(int processId);
+
+        [DllImport("user32")]
+        static extern int GetDpiForWindow(IntPtr hwnd);
+
+        [DllImport("user32")]
+        static extern int GetSystemMetricsForDpi(int index, int dpi);
+
+        [DllImport("user32", CharSet = CharSet.Unicode)]
+        static extern IntPtr FindWindowW(string className, string title);
+
+        [DllImport("user32")]
+        static extern IntPtr MonitorFromPoint(System.Drawing.Point point, int flags);
+
+        [DllImport("shcore")]
+        static extern int GetDpiForMonitor(IntPtr monitor, int type, out int dpiX, out int dpiY);
+
+        [DllImport("dwmapi")]
+        static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int value, int size);
+
+        [DllImport("uxtheme", EntryPoint = "#135")]
+        static extern int SetPreferredAppMode(int mode);
+
+        [DllImport("uxtheme", EntryPoint = "#136")]
+        static extern void FlushMenuThemes();
+
+        const int DWMWA_USE_IMMERSIVE_DARK_MODE = 20, DWMWA_WINDOW_CORNER_PREFERENCE = 33, DWMWA_CAPTION_COLOR = 35;
+        const int DWMWCP_ROUND = 2, IMAGE_ICON = 1, APP_ICON_ID = 32512, APPMODE_ALLOW_DARK = 1;
+        const int MONITOR_DEFAULTTONEAREST = 2, MDT_EFFECTIVE_DPI = 0, SM_CXSMICON = 49;
+
+        // The scale of the monitor at a point or under a window, as the user set it now. WinForms'
+        // DeviceDpi and GDI's point sizes use the system DPI instead, which keeps its sign-in value
+        // after the display scale changes.
+        public static int DpiAt(System.Drawing.Point point)
         {
-            CloseHandle(Open(BattMgrDevice));
+            int x, y;
+            return GetDpiForMonitor(MonitorFromPoint(point, MONITOR_DEFAULTTONEAREST), MDT_EFFECTIVE_DPI, out x, out y) == 0 ? x : 96;
         }
+
+        public static int DpiOf(IntPtr hwnd)
+        {
+            int dpi = GetDpiForWindow(hwnd);
+            return dpi > 0 ? dpi : 96;
+        }
+
+        // The size of a notification-area icon at the taskbar's current scale.
+        public static int TrayIconSize()
+        {
+            IntPtr taskbar = FindWindowW("Shell_TrayWnd", null);
+            return GetSystemMetricsForDpi(SM_CXSMICON, taskbar == IntPtr.Zero ? DpiAt(System.Drawing.Point.Empty) : DpiOf(taskbar));
+        }
+
+        // Lets native (Win32) menus follow the Windows dark mode, like Explorer's.
+        public static void AllowDarkMenus()
+        {
+            try { SetPreferredAppMode(APPMODE_ALLOW_DARK); FlushMenuThemes(); }
+            catch (EntryPointNotFoundException) { }
+        }
+
+        public static void UseDarkTitleBar(IntPtr hwnd, bool dark, System.Drawing.Color caption)
+        {
+            int on = dark ? 1 : 0, color = caption.R | caption.G << 8 | caption.B << 16;
+            DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, ref on, 4);
+            DwmSetWindowAttribute(hwnd, DWMWA_CAPTION_COLOR, ref color, 4);
+        }
+
+        public static void RoundCorners(IntPtr hwnd)
+        {
+            int round = DWMWCP_ROUND;
+            DwmSetWindowAttribute(hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, ref round, 4);
+        }
+
+        // The icon embedded by csc /win32icon, rendered by Windows at the exact size requested.
+        public static System.Drawing.Icon AppIcon(int size)
+        {
+            IntPtr icon = LoadImageW(GetModuleHandleW(IntPtr.Zero), new IntPtr(APP_ICON_ID), IMAGE_ICON, size, size, 0);
+            return icon == IntPtr.Zero ? null : System.Drawing.Icon.FromHandle(icon);
+        }
+
+        // Hands unused pages back to Windows; a tray app spends nearly all its time idle.
+        public static void TrimMemory()
+        {
+            GC.Collect();
+            SetProcessWorkingSetSize(new IntPtr(-1), new IntPtr(-1), new IntPtr(-1));
+        }
+
+        static string batteryPath;
 
         public static void SetChargeLimit(int targetSoc, int deltaSoc)
         {
